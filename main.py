@@ -8,16 +8,60 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from moviepy.editor import VideoFileClip
 
-def download_gif(url, path):
-    try:
-        gif_response = requests.get(url)
-        gif_response.raise_for_status()
-        with open(path, "wb") as f:
-            f.write(gif_response.content)
-        print(f"GIF saved at {path}")
-    except requests.exceptions.RequestException as e:
-        print(f"Error downloading GIF from {url}: {e}")
+def scrape_and_download_gifs(search_query, num_gifs):
+    service = ChromeService(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service)
+    url = f"https://tenor.com/pt-BR/search/{search_query}-gifs"
+    driver.get(url)
+
+    gifs = set()
+    while len(gifs) < num_gifs:
+        driver.find_element(By.TAG_NAME, "body").send_keys(Keys.END)
+        time.sleep(2) 
+
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        gif_container = soup.select_one('div#root div div:nth-of-type(3) div div div:nth-of-type(4)')
+        if gif_container:
+            gif_images = gif_container.find_all('img')
+            for img in gif_images:
+                gifs.add(img['src'])
+                if len(gifs) >= num_gifs:
+                    break
+
+    driver.quit()
+
+    gifs = list(gifs)[:num_gifs] 
+    
+    base_dir = search_query
+    gifs_dir = os.path.join(base_dir, 'Gifs')
+    mp4_dir = os.path.join(base_dir, 'Mp4')
+
+    os.makedirs(gifs_dir, exist_ok=True)
+    os.makedirs(mp4_dir, exist_ok=True)
+
+    # Baixa cada GIF e converte para MP4
+    for i, gif_url in enumerate(gifs):
+        full_gif_url = urljoin(url, gif_url)
+        gif_data = requests.get(full_gif_url).content
+        
+        gif_filename = os.path.join(gifs_dir, f"gif_{i + 1}.gif")
+        mp4_filename = os.path.join(mp4_dir, f"gif_{i + 1}.mp4")
+        
+        # Salva o GIF
+        with open(gif_filename, 'wb') as gif_file:
+            gif_file.write(gif_data)
+        print(f"Downloaded {gif_filename}")
+        
+        # Converte o GIF para MP4
+        try:
+            clip = VideoFileClip(gif_filename)
+            clip.write_videofile(mp4_filename, codec='libx264')
+            print(f"Converted {gif_filename} to {mp4_filename}")
+        except Exception as e:
+            print(f"Failed to convert {gif_filename} to MP4: {e}")
+
 
 def scrape_and_download_stickers(search_query, num_stickers=50):
     service = ChromeService(ChromeDriverManager().install())
@@ -36,10 +80,6 @@ def scrape_and_download_stickers(search_query, num_stickers=50):
                 stickers.add(img['src'])
                 if len(stickers) >= num_stickers:
                     break
-        else:
-            print("Couldn't find the sticker container.")
-            break
-
         if len(stickers) < num_stickers:
             driver.find_element(By.TAG_NAME, "body").send_keys(Keys.END)
             time.sleep(3)
@@ -63,41 +103,14 @@ def scrape_and_download_stickers(search_query, num_stickers=50):
         print(f"Downloaded {sticker_filename}")
 
 if __name__ == "__main__":
-    print("1. Download GIFs from Giphy")
+    print("1. Download GIFs from Tenor")
     print("2. Download Stickers from Tenor")
     choice = input("Choose an option (1 or 2): ")
 
     if choice == '1':
-        search_term = input("Enter the search term for the GIFs: ")
-        quantity = int(input("Enter the number of GIFs to download: "))
-        api_key = input("Enter your Giphy API key: ")
-        search_url = f"https://api.giphy.com/v1/gifs/search?api_key={api_key}&q={search_term}&limit={quantity}"
-
-        try:
-            response = requests.get(search_url)
-            response.raise_for_status()
-            print(f"Successfully accessed API: {search_url}")
-        except requests.exceptions.RequestException as e:
-            print(f"Error accessing the search API: {e}")
-            exit()
-
-        data = response.json().get('data', [])
-        if not data:
-            print("No GIFs found.")
-            exit()
-
-        gif_links = [gif['images']['original_mp4']['mp4'] for gif in data]
-        print(f"{len(gif_links)} GIFs found. Downloading the first {quantity}...")
-
-        if not os.path.exists("giphy"):
-            os.makedirs("giphy")
-
-        for i, link in enumerate(gif_links):
-            gif_path = f"giphy/gif_{i+1}.mp4"
-            print(f"Downloading GIF {i+1}: {link}")
-            download_gif(link, gif_path)
-
-        print(f"Download of the first {quantity} GIFs completed!")
+        search_query = input("Enter the search term for the GIFs: ")
+        num_gifs = int(input("How many GIFs do you want to capture? "))
+        scrape_and_download_gifs(search_query, num_gifs)
 
     elif choice == '2':
         search_query = input("Enter the search term for stickers: ")
